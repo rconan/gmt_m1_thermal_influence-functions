@@ -1,0 +1,20 @@
+[package]
+name = "gmt_m1_thermal_influence-functions"
+version = "0.1.0"
+authors = ["Rod Conan <rconan@gmto.org>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+complot = { git = "https://github.com/rconan/complot.git", branch = "main" }
+datax = { git = "https://github.com/rconan/datax.git", branch = "main" }
+fem = { git = "https://github.com/rconan/fem.git", branch = "main" }
+geotrans = { git = "https://github.com/rconan/geotrans.git", branch = "main" }
+gmt-kpp = {  path = "/home/rconan/projects/gmt-kpp" }#  git = "https://github.com/rconan/gmt-kpp.git", branch = "main" }
+nalgebra = "0.24.0"
+plotters = "0.3.0"
+rayon = "1.5.0"
+serde = { version = "1.0.119", features = ["derive"] }
+serde-pickle = "0.6.2"
+spade = "1.8.2"
