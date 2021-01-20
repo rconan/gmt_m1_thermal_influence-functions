@@ -3,8 +3,11 @@ use fem;
 use fem::IOTraits;
 //use gmt_m1;
 use gmt_kpp::KPP;
-use gmt_m1_thermal_influence_functions::{Mirror, Segment as M1Segment, SegmentBuilder, BendingModes};
+use gmt_m1_thermal_influence_functions::{
+    BendingModes, Mirror, Segment as M1Segment, SegmentBuilder,
+};
 use nalgebra as na;
+use plotters::prelude::*;
 use rayon::prelude::*;
 use serde_pickle as pkl;
 use std::collections::BTreeMap;
@@ -12,13 +15,16 @@ use std::fs::File;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
+use structopt::StructOpt;
 
 // FANS coordinates [x1,y1,x2,y2,...]
+#[allow(dead_code)]
 const OA_FANS: [f64; 28] = [
     -3.3071, -0.9610, -2.1084, -2.6908, -1.2426, -1.5376, -1.2426, 0., 3.3071, -0.9610, 2.1084,
     -2.6908, 1.2426, -1.5376, 1.2426, 0., -3.3071, 0.9610, -2.1084, 2.6908, -1.2426, 1.5376,
     3.3071, 0.9610, 2.1084, 2.6908, 1.2426, 1.5376,
 ];
+#[allow(dead_code)]
 const CS_FANS: [f64; 28] = [
     -3.3071, -1.2610, -2.1084, -2.6908, -1.2426, -1.5376, -4., 0., 3.3071, -1.2610, 2.1084,
     -2.6908, 1.2426, -1.5376, 4., 0., -3.3071, 1.2610, -2.1084, 2.6908, -1.2426, 1.5376, 3.3071,
@@ -26,6 +32,7 @@ const CS_FANS: [f64; 28] = [
 ];
 
 #[allow(dead_code)]
+#[derive(Debug)]
 enum TemperatureDistribution {
     Constant(f64),
     Uniform(f64, f64),
@@ -173,9 +180,63 @@ fn build_segment(
         .build()
 }
 
+fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
+    let mut plot =
+        BitMapBackend::new("surface.png", (n_grid as u32, n_grid as u32)).into_drawing_area();
+    plot.fill(&WHITE).unwrap();
+    let l = length / 2.;
+    let mut chart = ChartBuilder::on(&mut plot)
+        .set_label_area_size(LabelAreaPosition::Left, 40)
+        .set_label_area_size(LabelAreaPosition::Bottom, 40)
+        .margin_top(40)
+        .margin_right(40)
+        .build_cartesian_2d(-l..l, -l..l)
+        .unwrap();
+    chart
+        .configure_mesh()
+        .disable_x_mesh()
+        .disable_y_mesh()
+        .draw()
+        .unwrap();
+    let cells_max = surface.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let cells_min = surface.iter().cloned().fold(f64::INFINITY, f64::min);
+    let unit_surface: Vec<f64> = surface
+        .iter()
+        .map(|p| (p - cells_min) / (cells_max - cells_min))
+        .collect();
+    let plotting_area = chart.plotting_area();
+    let d = length / (n_grid - 1) as f64;
+    for i in 0..n_grid {
+        let x = i as f64 * d - 0.5 * length;
+        for j in 0..n_grid {
+            let y = j as f64 * d - 0.5 * length;
+            let ij = i * n_grid + j;
+            plotting_area
+                .draw_pixel((x, y), &HSLColor(unit_surface[ij], 0.5, 0.4))
+                .unwrap();
+        }
+    }
+}
+#[derive(StructOpt, Debug)]
+#[structopt(name = "gmt_m1_thermal_influence-functions")]
+struct Opt {
+    /// Number of Monte-Carlo sample
+    #[structopt(short, long, default_value = "1")]
+    monte_carlo: usize,
+    /// Temperature distribution: constant, uniform
+    #[structopt(short, long)]
+    temp_dist: String,
+    /// Temperature distribution parameters given in mK: constant<peak>, uniform<range,offset>
+    #[structopt(short = "a", long)]
+    temp_dist_args: Vec<f64>,
+}
+
 fn main() {
+    let opt = Opt::from_args();
+
     let h1 = thread::spawn(|| {
         println!("Loading outer segment data ...");
+        let now = Instant::now();
         let mut inputs = fem::load_io("data/20200319_Rodrigo_k6rot_100000_c_inputs.pkl").unwrap();
         let (actuators_coords, nodes, _m1_cores, n_core, stiffness, stiffness_size, bending) =
             load_thermal_data(
@@ -187,7 +248,12 @@ fn main() {
                 "m1_s1_stiffness",
                 "bending_modes_OA",
             );
+        println!(
+            "Outer segment data loaded in {:.3}s",
+            now.elapsed().as_secs_f64()
+        );
         println!("Building outer segment model ...");
+        let now = Instant::now();
         let segment = build_segment(
             nodes,
             n_core,
@@ -196,11 +262,16 @@ fn main() {
             bending,
             actuators_coords,
         );
+        println!(
+            "Outer segment model build in {:.3}s",
+            now.elapsed().as_secs_f64()
+        );
         (segment, n_core)
     });
     let h2 = thread::spawn(|| {
         println!("Loading center segment data ...");
         let mut inputs = fem::load_io("data/20200319_Rodrigo_k6rot_100000_c_inputs.pkl").unwrap();
+        let now = Instant::now();
         let (actuators_coords, nodes, _m1_cores, n_core, stiffness, stiffness_size, bending) =
             load_thermal_data(
                 &mut inputs,
@@ -211,7 +282,12 @@ fn main() {
                 "m1_s7_stiffness",
                 "bending_modes_CS",
             );
+        println!(
+            "Center segment data loaded in {:.3}s",
+            now.elapsed().as_secs_f64()
+        );
         println!("Building center segment model ...");
+        let now = Instant::now();
         let segment = build_segment(
             nodes,
             n_core,
@@ -220,6 +296,10 @@ fn main() {
             bending,
             actuators_coords,
         );
+        println!(
+            "Center segment model build in {:.3}s",
+            now.elapsed().as_secs_f64()
+        );
         (segment, n_core)
     });
     let (outer, n_core_outer) = h1.join().unwrap();
@@ -227,11 +307,20 @@ fn main() {
     let mut m1 = Mirror::with_segments(outer, center);
     println!("M1: {}", m1);
 
-    let monte_carlo = 10;
-    //let core_temperature =
-    //    TemperatureDistribution::Constant(30e-3).cores(n_core_outer, n_core_center); // 0.9998611845699603 for 30e-3
-    let core_temperature =
-        TemperatureDistribution::Uniform(30e-3, 0.).cores(n_core_outer, n_core_center, monte_carlo);
+    let monte_carlo = opt.monte_carlo;
+    let core_temperature = match opt.temp_dist.as_str() {
+        "constant" => TemperatureDistribution::Constant(1e-3 * opt.temp_dist_args[0]).cores(
+            n_core_outer,
+            n_core_center,
+            monte_carlo,
+        ),
+        "uniform" => TemperatureDistribution::Uniform(
+            1e-3 * opt.temp_dist_args[0],
+            1e-3 * opt.temp_dist_args[1],
+        )
+        .cores(n_core_outer, n_core_center, monte_carlo),
+        _ => unimplemented!(),
+    };
     /*let core_temperature = TemperatureDistribution::DiscreteGauss(
                 n_core,
                 m1_cores.clone(),
@@ -276,11 +365,15 @@ fn main() {
         .collect();
     println!(" in {:.3}s", now.elapsed().as_secs_f64());
 
-    let mut file = File::create("wavefront.pkl").unwrap();
-    pkl::to_writer(
-        &mut file,
-        &[pupil.as_ref(), &surface[0].as_ref().unwrap()],
-        true,
-    )
-    .unwrap();
+    draw_surface(length, n_grid, &surface[0].as_ref().unwrap());
+
+    /*
+        let mut file = File::create("wavefront.pkl").unwrap();
+        pkl::to_writer(
+            &mut file,
+            &[pupil.as_ref(), &surface[0].as_ref().unwrap()],
+            true,
+        )
+            .unwrap();
+    */
 }
