@@ -1,7 +1,7 @@
 use geotrans;
 use geotrans::Frame::*;
 use nalgebra as na;
-use nalgebra::{Dynamic, VecStorage, U1};
+use nalgebra::{Dynamic, VecStorage};
 use serde::Deserialize;
 use spade::delaunay::{
     DelaunayTriangulation, DelaunayWalkLocate, FloatDelaunayTriangulation, PositionInTriangulation,
@@ -12,12 +12,11 @@ use std::fmt;
 use std::rc::Rc;
 
 type Matrix = na::Matrix<f64, Dynamic, Dynamic, VecStorage<f64, Dynamic, Dynamic>>;
-type Vector = na::Matrix<f64, Dynamic, U1, VecStorage<f64, Dynamic, U1>>;
 type Triangulation = DelaunayTriangulation<Surface, FloatKernel, DelaunayWalkLocate>;
 
 struct Surface {
     point: [f64; 2],
-    height: f64,
+    height: Vec<f64>,
 }
 impl HasPosition for Surface {
     type Point = [f64; 2];
@@ -39,10 +38,17 @@ pub struct GMTSegmentModel {
     base: Rc<Segment>,
     /// Segment ID
     id: usize,
+    /// Number of surfaces per segment
+    n_surface: usize,
     /// Segment surface
-    surface: Option<Vec<f64>>,
+    surface: Option<Matrix>,
     /// Surface triangulation in segment local coordinate system
     tri: Option<Triangulation>,
+}
+impl GMTSegmentModel {
+    pub fn surface(&self) -> Option<&[f64]> {
+        self.surface.as_ref().and_then(|x| Some(x.as_slice()))
+    }
 }
 /// GMT segment model type: outer or center segment
 pub enum GMTSegment {
@@ -59,23 +65,25 @@ impl fmt::Display for GMTSegment {
 }
 impl GMTSegment {
     /// Computes a segment surface(s)
-    pub fn modes_to_surface(&mut self, weights: &Vector) {
+    pub fn modes_to_surface(&mut self, weights: &Matrix) {
         use GMTSegment::*;
         match self {
             Outer(ref mut segment) => {
+                segment.n_surface = weights.ncols();
                 segment.surface = segment.base.surface(weights);
             }
             Center(ref mut segment) => {
+                segment.n_surface = weights.ncols();
                 segment.surface = segment.base.surface(weights);
             }
         }
     }
     /// Returns a segment surface(s)
-    pub fn surface(&self) -> &Option<Vec<f64>> {
+    pub fn surface(&self) -> Option<&[f64]> {
         use GMTSegment::*;
         match self {
-            Outer(segment) => &segment.surface,
-            Center(segment) => &segment.surface,
+            Outer(segment) => segment.surface(),
+            Center(segment) => segment.surface(),
         }
     }
     /// Returns a segment id
@@ -91,19 +99,18 @@ impl GMTSegment {
         use GMTSegment::*;
         match self {
             Outer(ref mut segment) => {
+                let sm = segment
+                    .surface
+                    .as_ref()
+                    .unwrap_or(&Matrix::zeros(segment.base.n_node, 1))
+                    .clone();
                 let mut tri = FloatDelaunayTriangulation::with_walk_locate();
                 segment
                     .base
                     .nodes
                     .chunks(2)
-                    .zip(
-                        segment
-                            .surface
-                            .as_ref()
-                            .unwrap_or(&vec![0f64; segment.base.n_node])
-                            .iter(),
-                    )
-                    .for_each(|(xy, s)| {
+                    .enumerate()
+                    .for_each(|(i, xy)| {
                         let mut v = geotrans::Vector::null();
                         match segment.id {
                             1 => OSS(xy).to(M1S1(&mut v)),
@@ -116,28 +123,28 @@ impl GMTSegment {
                             _ => (),
                         };
                         let xy_local = v.as_ref()[0..2].to_owned();
+                        let row: Vec<f64> = sm.row(i).iter().map(|x| *x).collect();
                         let s = Surface {
                             point: [xy_local[0], xy_local[1]],
-                            height: *s,
+                            height: row,
                         };
                         tri.insert(s);
                     });
                 segment.tri = Some(tri);
             }
             Center(ref mut segment) => {
+                let sm = segment
+                    .surface
+                    .as_ref()
+                    .unwrap_or(&Matrix::zeros(segment.base.n_node, 1))
+                    .clone();
                 let mut tri = FloatDelaunayTriangulation::with_walk_locate();
                 segment
                     .base
                     .nodes
                     .chunks(2)
-                    .zip(
-                        segment
-                            .surface
-                            .as_ref()
-                            .unwrap_or(&vec![0f64; segment.base.n_node])
-                            .iter(),
-                    )
-                    .for_each(|(xy, s)| {
+                    .enumerate()
+                    .for_each(|(i, xy)| {
                         let mut v = geotrans::Vector::null();
                         match segment.id {
                             1 => OSS(xy).to(M1S1(&mut v)),
@@ -150,9 +157,10 @@ impl GMTSegment {
                             _ => (),
                         };
                         let xy_local = v.as_ref()[0..2].to_owned();
+                        let row: Vec<f64> = sm.row(i).iter().map(|x| *x).collect();
                         let s = Surface {
                             point: [xy_local[0], xy_local[1]],
-                            height: *s,
+                            height: row,
                         };
                         tri.insert(s);
                     });
@@ -160,6 +168,7 @@ impl GMTSegment {
             }
         };
     }
+    /// Returns `true` if the point [x,y] is inside the segment otherwise returns `false`
     pub fn inside(&self, x: f64, y: f64) -> bool {
         use GMTSegment::*;
         match self {
@@ -179,18 +188,19 @@ impl GMTSegment {
             },
         }
     }
-    pub fn interpolation(&self, x: f64, y: f64) -> f64 {
+    /// Segment linear interpolation
+    pub fn interpolation(&self, x: f64, y: f64, i_surface: usize) -> f64 {
         use GMTSegment::*;
         match self {
             Outer(segment) => match &segment.tri {
                 Some(tri) => tri
-                    .barycentric_interpolation(&[x, y], |p| p.height)
+                    .barycentric_interpolation(&[x, y], |p| p.height[i_surface])
                     .unwrap(),
                 None => 0f64,
             },
             Center(segment) => match &segment.tri {
                 Some(tri) => tri
-                    .barycentric_interpolation(&[x, y], |p| p.height)
+                    .barycentric_interpolation(&[x, y], |p| p.height[i_surface])
                     .unwrap(),
                 None => 0f64,
             },
@@ -235,9 +245,9 @@ impl fmt::Display for Segment {
 }
 impl Segment {
     /// Returns the mirror surface
-    pub fn surface(&self, weights: &Vector) -> Option<Vec<f64>> {
+    pub fn surface(&self, weights: &Matrix) -> Option<Matrix> {
         match self.modes.as_ref() {
-            Some(modes) => Some((modes * weights).as_slice().to_vec()),
+            Some(modes) => Some(modes * weights),
             None => None,
         }
     }
@@ -337,7 +347,7 @@ impl Mirror {
         this
     }
     /// Computes the segment surfaces according to the mode weights
-    pub fn modes_to_surface(&mut self, weights: &[Vector]) {
+    pub fn modes_to_surface(&mut self, weights: &[Matrix]) {
         self.segments
             .iter_mut()
             .filter_map(|segment| segment.as_mut())
@@ -383,7 +393,8 @@ impl Mirror {
         }
         mask
     }
-    pub fn gridded_surface(&self, length: f64, n_grid: usize, mask: &[usize]) -> Vec<f64> {
+    pub fn gridded_surface(&self, length: f64, n_grid: usize, mask: &[usize], i_surface: Option<usize>) -> Vec<f64> {
+        let i_surface = i_surface.unwrap_or(0);
         let d = length / (n_grid - 1) as f64;
         let mut gridded_surface = vec![0f64; n_grid * n_grid];
         mask.iter()
@@ -402,12 +413,12 @@ impl Mirror {
                         let j = k % n_grid;
                         let x = i as f64 * d - 0.5 * length;
                         let y = j as f64 * d - 0.5 * length;
-                        gridded_surface[k] = s.interpolation(x, y)
+                        gridded_surface[k] = s.interpolation(x, y, i_surface)
                     })
             });
         gridded_surface
     }
-    pub fn surface(&self) -> Vec<&Option<Vec<f64>>> {
+    pub fn surface(&self) -> Vec<Option<&[f64]>> {
         self.segments
             .iter()
             .filter_map(|segment| segment.as_ref())
