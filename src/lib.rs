@@ -50,6 +50,54 @@ impl GMTSegmentModel {
     pub fn surface(&self) -> Option<&[f64]> {
         self.surface.as_ref().and_then(|x| Some(x.as_slice()))
     }
+    pub fn local_triangulation(&mut self) {
+        let mut tri = FloatDelaunayTriangulation::with_walk_locate();
+        self.base.nodes.chunks(2).enumerate().for_each(|(i, xy)| {
+            let mut v = geotrans::Vector::null();
+            match self.id {
+                1 => OSS(xy).to(M1S1(&mut v)),
+                2 => OSS(xy).to(M1S2(&mut v)),
+                3 => OSS(xy).to(M1S3(&mut v)),
+                4 => OSS(xy).to(M1S4(&mut v)),
+                5 => OSS(xy).to(M1S5(&mut v)),
+                6 => OSS(xy).to(M1S6(&mut v)),
+                7 => OSS(xy).to(M1S7(&mut v)),
+                _ => (),
+            };
+            let xy_local = v.as_ref()[0..2].to_owned();
+            let row: Vec<f64> = match self.surface.as_ref() {
+                Some(sm) => sm.row(i).iter().map(|x| *x).collect(),
+                None => vec![0f64],
+            };
+            let s = Surface {
+                point: [xy_local[0], xy_local[1]],
+                height: row,
+            };
+            tri.insert(s);
+        });
+        self.tri = Some(tri);
+    }
+    pub fn modes_to_surface(&mut self, weights: &Matrix) {
+        self.n_surface = weights.ncols();
+        self.surface = self.base.surface(weights);
+    }
+    pub fn inside(&self, x: f64, y: f64) -> bool {
+        match &self.tri {
+            Some(tri) => match tri.locate(&[x, y]) {
+                PositionInTriangulation::OutsideConvexHull(_) => false,
+                _ => true,
+            },
+            None => false,
+        }
+    }
+    pub fn interpolation(&self, x: f64, y: f64, i_surface: usize) -> f64 {
+        match &self.tri {
+            Some(tri) => tri
+                .barycentric_interpolation(&[x, y], |p| p.height[i_surface])
+                .unwrap(),
+            None => 0f64,
+        }
+    }
 }
 /// GMT segment model type: outer or center segment
 pub enum GMTSegment {
@@ -66,18 +114,13 @@ impl fmt::Display for GMTSegment {
 }
 impl GMTSegment {
     /// Computes a segment surface(s)
-    pub fn modes_to_surface(&mut self, weights: &Matrix) {
+    pub fn modes_to_surface(&mut self, weights: &Matrix) -> &mut Self {
         use GMTSegment::*;
         match self {
-            Outer(ref mut segment) => {
-                segment.n_surface = weights.ncols();
-                segment.surface = segment.base.surface(weights);
-            }
-            Center(ref mut segment) => {
-                segment.n_surface = weights.ncols();
-                segment.surface = segment.base.surface(weights);
-            }
-        }
+            Outer(ref mut segment) => segment.modes_to_surface(weights),
+            Center(ref mut segment) => segment.modes_to_surface(weights),
+        };
+        self
     }
     /// Returns a segment surface(s)
     pub fn surface(&self) -> Option<&[f64]> {
@@ -100,107 +143,27 @@ impl GMTSegment {
         use GMTSegment::*;
         match self {
             Outer(ref mut segment) => {
-                let mut tri = FloatDelaunayTriangulation::with_walk_locate();
-                segment
-                    .base
-                    .nodes
-                    .chunks(2)
-                    .enumerate()
-                    .for_each(|(i, xy)| {
-                        let mut v = geotrans::Vector::null();
-                        match segment.id {
-                            1 => OSS(xy).to(M1S1(&mut v)),
-                            2 => OSS(xy).to(M1S2(&mut v)),
-                            3 => OSS(xy).to(M1S3(&mut v)),
-                            4 => OSS(xy).to(M1S4(&mut v)),
-                            5 => OSS(xy).to(M1S5(&mut v)),
-                            6 => OSS(xy).to(M1S6(&mut v)),
-                            7 => OSS(xy).to(M1S7(&mut v)),
-                            _ => (),
-                        };
-                        let xy_local = v.as_ref()[0..2].to_owned();
-                        let row: Vec<f64> = match segment.surface.as_ref() {
-                            Some(sm) => sm.row(i).iter().map(|x| *x).collect(),
-                            None => vec![0f64],
-                        };
-                        let s = Surface {
-                            point: [xy_local[0], xy_local[1]],
-                            height: row,
-                        };
-                        tri.insert(s);
-                    });
-                segment.tri = Some(tri);
+                segment.local_triangulation();
             }
             Center(ref mut segment) => {
-                let mut tri = FloatDelaunayTriangulation::with_walk_locate();
-                segment
-                    .base
-                    .nodes
-                    .chunks(2)
-                    .enumerate()
-                    .for_each(|(i, xy)| {
-                        let mut v = geotrans::Vector::null();
-                        match segment.id {
-                            1 => OSS(xy).to(M1S1(&mut v)),
-                            2 => OSS(xy).to(M1S2(&mut v)),
-                            3 => OSS(xy).to(M1S3(&mut v)),
-                            4 => OSS(xy).to(M1S4(&mut v)),
-                            5 => OSS(xy).to(M1S5(&mut v)),
-                            6 => OSS(xy).to(M1S6(&mut v)),
-                            7 => OSS(xy).to(M1S7(&mut v)),
-                            _ => (),
-                        };
-                        let xy_local = v.as_ref()[0..2].to_owned();
-                        let row: Vec<f64> = match segment.surface.as_ref() {
-                            Some(sm) => sm.row(i).iter().map(|x| *x).collect(),
-                            None => vec![0f64],
-                        };
-                        let s = Surface {
-                            point: [xy_local[0], xy_local[1]],
-                            height: row,
-                        };
-                        tri.insert(s);
-                    });
-                segment.tri = Some(tri);
+                segment.local_triangulation();
             }
-        };
+        }
     }
     /// Returns `true` if the point [x,y] is inside the segment otherwise returns `false`
     pub fn inside(&self, x: f64, y: f64) -> bool {
         use GMTSegment::*;
         match self {
-            Outer(segment) => match &segment.tri {
-                Some(tri) => match tri.locate(&[x, y]) {
-                    PositionInTriangulation::OutsideConvexHull(_) => false,
-                    _ => true,
-                },
-                None => false,
-            },
-            Center(segment) => match &segment.tri {
-                Some(tri) => match tri.locate(&[x, y]) {
-                    PositionInTriangulation::OutsideConvexHull(_) => false,
-                    _ => true,
-                },
-                None => false,
-            },
+            Outer(segment) => segment.inside(x, y),
+            Center(segment) => segment.inside(x, y),
         }
     }
     /// Segment linear interpolation
     pub fn interpolation(&self, x: f64, y: f64, i_surface: usize) -> f64 {
         use GMTSegment::*;
         match self {
-            Outer(segment) => match &segment.tri {
-                Some(tri) => tri
-                    .barycentric_interpolation(&[x, y], |p| p.height[i_surface])
-                    .unwrap(),
-                None => 0f64,
-            },
-            Center(segment) => match &segment.tri {
-                Some(tri) => tri
-                    .barycentric_interpolation(&[x, y], |p| p.height[i_surface])
-                    .unwrap(),
-                None => 0f64,
-            },
+            Outer(segment) => segment.interpolation(x,y,i_surface),
+            Center(segment) => segment.interpolation(x,y,i_surface),
         }
     }
 }
