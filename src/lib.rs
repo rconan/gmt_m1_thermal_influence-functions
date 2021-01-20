@@ -2,6 +2,7 @@ use geotrans;
 use geotrans::Frame::*;
 use nalgebra as na;
 use nalgebra::{Dynamic, VecStorage};
+use rayon::prelude::*;
 use serde::Deserialize;
 use spade::delaunay::{
     DelaunayTriangulation, DelaunayWalkLocate, FloatDelaunayTriangulation, PositionInTriangulation,
@@ -9,7 +10,7 @@ use spade::delaunay::{
 use spade::kernels::FloatKernel;
 use spade::HasPosition;
 use std::fmt;
-use std::rc::Rc;
+use std::sync::Arc;
 
 type Matrix = na::Matrix<f64, Dynamic, Dynamic, VecStorage<f64, Dynamic, Dynamic>>;
 type Triangulation = DelaunayTriangulation<Surface, FloatKernel, DelaunayWalkLocate>;
@@ -35,7 +36,7 @@ pub struct BendingModes {
 #[derive(Default)]
 pub struct GMTSegmentModel {
     /// Segment base model
-    base: Rc<Segment>,
+    base: Arc<Segment>,
     /// Segment ID
     id: usize,
     /// Number of surfaces per segment
@@ -99,11 +100,6 @@ impl GMTSegment {
         use GMTSegment::*;
         match self {
             Outer(ref mut segment) => {
-                let sm = segment
-                    .surface
-                    .as_ref()
-                    .unwrap_or(&Matrix::zeros(segment.base.n_node, 1))
-                    .clone();
                 let mut tri = FloatDelaunayTriangulation::with_walk_locate();
                 segment
                     .base
@@ -123,7 +119,10 @@ impl GMTSegment {
                             _ => (),
                         };
                         let xy_local = v.as_ref()[0..2].to_owned();
-                        let row: Vec<f64> = sm.row(i).iter().map(|x| *x).collect();
+                        let row: Vec<f64> = match segment.surface.as_ref() {
+                            Some(sm) => sm.row(i).iter().map(|x| *x).collect(),
+                            None => vec![0f64],
+                        };
                         let s = Surface {
                             point: [xy_local[0], xy_local[1]],
                             height: row,
@@ -133,11 +132,6 @@ impl GMTSegment {
                 segment.tri = Some(tri);
             }
             Center(ref mut segment) => {
-                let sm = segment
-                    .surface
-                    .as_ref()
-                    .unwrap_or(&Matrix::zeros(segment.base.n_node, 1))
-                    .clone();
                 let mut tri = FloatDelaunayTriangulation::with_walk_locate();
                 segment
                     .base
@@ -157,7 +151,10 @@ impl GMTSegment {
                             _ => (),
                         };
                         let xy_local = v.as_ref()[0..2].to_owned();
-                        let row: Vec<f64> = sm.row(i).iter().map(|x| *x).collect();
+                        let row: Vec<f64> = match segment.surface.as_ref() {
+                            Some(sm) => sm.row(i).iter().map(|x| *x).collect(),
+                            None => vec![0f64],
+                        };
                         let s = Surface {
                             point: [xy_local[0], xy_local[1]],
                             height: row,
@@ -204,13 +201,6 @@ impl GMTSegment {
                     .unwrap(),
                 None => 0f64,
             },
-        }
-    }
-    pub fn println(&self, msg: String) {
-        use GMTSegment::*;
-        match self {
-            Outer(_) => println!("Outer segment : {}", msg),
-            Center(_) => println!("Center segment: {}", msg),
         }
     }
 }
@@ -321,15 +311,15 @@ impl SegmentBuilder {
 }
 /// GMT Mirror model
 pub struct Mirror {
-    outer: Rc<Segment>,
-    center: Rc<Segment>,
+    outer: Arc<Segment>,
+    center: Arc<Segment>,
     pub segments: [Option<GMTSegment>; 7],
 }
 impl Mirror {
     pub fn with_segments(outer: Segment, center: Segment) -> Self {
         let mut this = Mirror {
-            outer: Rc::new(outer),
-            center: Rc::new(center),
+            outer: Arc::new(outer),
+            center: Arc::new(center),
             segments: [None, None, None, None, None, None, None],
         };
         for k in 0..6 {
@@ -358,7 +348,7 @@ impl Mirror {
     }
     pub fn triangulate(&mut self) -> &mut Self {
         self.segments
-            .iter_mut()
+            .par_iter_mut()
             .filter_map(|segment| segment.as_mut())
             .for_each(|segment| segment.local_triangulation());
         self
@@ -393,7 +383,13 @@ impl Mirror {
         }
         mask
     }
-    pub fn gridded_surface(&self, length: f64, n_grid: usize, mask: &[usize], i_surface: Option<usize>) -> Vec<f64> {
+    pub fn gridded_surface(
+        &self,
+        length: f64,
+        n_grid: usize,
+        mask: &[usize],
+        i_surface: Option<usize>,
+    ) -> Vec<f64> {
         let i_surface = i_surface.unwrap_or(0);
         let d = length / (n_grid - 1) as f64;
         let mut gridded_surface = vec![0f64; n_grid * n_grid];
@@ -428,6 +424,10 @@ impl Mirror {
 }
 impl fmt::Display for Mirror {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Mirror:\n{}\n{}", self.outer, self.center)
+        write!(
+            f,
+            "Mirror:\n* Outer segment:\n{}\n* Center Segment\n{}",
+            self.outer, self.center
+        )
     }
 }
