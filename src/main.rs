@@ -182,7 +182,7 @@ fn build_segment(
 
 fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
     let mut plot =
-        BitMapBackend::new("surface.png", (n_grid as u32, n_grid as u32)).into_drawing_area();
+        BitMapBackend::new("wavefront.png", (n_grid as u32, n_grid as u32)).into_drawing_area();
     plot.fill(&WHITE).unwrap();
     let l = length / 2.;
     let mut chart = ChartBuilder::on(&mut plot)
