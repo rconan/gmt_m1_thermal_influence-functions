@@ -6,7 +6,6 @@ use gmt_kpp::KPP;
 use gmt_m1_thermal_influence_functions::{Mirror, Segment as M1Segment, SegmentBuilder, BendingModes};
 use nalgebra as na;
 use rayon::prelude::*;
-use serde::Deserialize;
 use serde_pickle as pkl;
 use std::collections::BTreeMap;
 use std::fs::File;
