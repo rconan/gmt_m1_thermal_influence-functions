@@ -14,7 +14,7 @@ and finally download the [data](https://s3-us-west-2.amazonaws.com/gmto.modeling
 
 At a terminal enter: 
 
-`tar -xzvf gmt_m1_thermal_influence-functions.tgz && cd gmt_m1_thermal_influence-functions`,
+`tar -xzvf gmt_m1_thermal_influence-functions.tgz && cd gmt_m1_thermal_influence-functions`
 
 then `gmt_m1_thermal_influence-functions --help` to get a description of the inputs to the model.
 
