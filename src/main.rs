@@ -167,11 +167,13 @@ fn build_segment(
     let mut projection_columns = vec![z0, z1, z2];
     projection_columns.extend(bm);
     let projection = na::DMatrix::from_columns(&projection_columns);
-    let projection_svd = projection.clone().svd(true, true);
+    let projection_svd = projection.svd(true, true);
     //println!("Projection rank: {}", projection_svd.rank(1e-3));
-    let u = projection_svd.u.as_ref().unwrap().clone();
-    let q =
-        (na::DMatrix::<f64>::identity(n_node, n_node) - &u * &u.transpose()) * mx_stiffness.clone();
+    let u = projection_svd.u.as_ref().unwrap();
+    //    let q =
+    //        (na::DMatrix::<f64>::identity(n_node, n_node) - &u * &u.transpose()) * mx_stiffness.clone();
+    let w = &u.transpose() * &mx_stiffness;
+    let q = mx_stiffness - u * w;
     //println!("q: {:?}", q.shape());
     SegmentBuilder::new()
         .nodes(n_node, nodes)
