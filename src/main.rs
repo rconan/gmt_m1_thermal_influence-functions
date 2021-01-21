@@ -199,7 +199,7 @@ fn build_segment(
 fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
     let plot = BitMapBackend::new("wavefront.png", (n_grid as u32 + 100, n_grid as u32 + 100))
         .into_drawing_area();
-    plot.fill(&WHITE).unwrap();
+    plot.fill(&BLACK).unwrap();
     let l = length / 2.;
     let mut chart = ChartBuilder::on(&plot)
         .set_label_area_size(LabelAreaPosition::Left, 50)
@@ -227,9 +227,11 @@ fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
         for j in 0..n_grid {
             let y = j as f64 * d - 0.5 * length;
             let ij = i * n_grid + j;
-            plotting_area
-                .draw_pixel((x, y), &HSLColor(0.5 * unit_surface[ij], 0.5, 0.4))
-                .unwrap();
+            if surface[ij] != 0.0 {
+                plotting_area
+                    .draw_pixel((x, y), &HSLColor(0.5 * unit_surface[ij], 0.5, 0.4))
+                    .unwrap();
+            }
         }
     }
     let legend_plot = plot.clone();
@@ -244,6 +246,8 @@ fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
         .configure_mesh()
         .disable_x_mesh()
         .disable_y_mesh()
+        .axis_desc_style(TextStyle::from(("sans-serif", 14).into_font()).color(&WHITE))
+        .label_style(TextStyle::from(("sans-serif", 12).into_font()).color(&WHITE))
         .y_desc("Wavefront [nm]")
         .draw()
         .unwrap();
