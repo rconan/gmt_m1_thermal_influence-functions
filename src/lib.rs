@@ -47,6 +47,9 @@ pub struct GMTSegmentModel {
     tri: Option<Triangulation>,
 }
 impl GMTSegmentModel {
+    pub fn nodes(&self) -> std::slice::Chunks<'_, f64> {
+        self.base.nodes.chunks(2)
+    }
     pub fn surface(&self) -> Option<&[f64]> {
         self.surface.as_ref().and_then(|x| Some(x.as_slice()))
     }
@@ -98,6 +101,21 @@ impl GMTSegmentModel {
             None => 0f64,
         }
     }
+    pub fn actuators(&self) -> &[f64] {
+        &self.base.actuators
+    }
+    pub fn n_core(&self) -> usize {
+        match &self.base.m1_thermal {
+            Some(t) => t.n_core,
+            None => 0,
+        }
+    }
+    pub fn cores(&self) -> Option<&[f64]> {
+        match &self.base.m1_thermal {
+            Some(t) => Some(&t.cores),
+            None => None,
+        }
+    }
 }
 /// GMT segment model type: outer or center segment
 pub enum GMTSegment {
@@ -113,6 +131,13 @@ impl fmt::Display for GMTSegment {
     }
 }
 impl GMTSegment {
+    pub fn nodes(&self) -> std::slice::Chunks<'_, f64> {
+        use GMTSegment::*;
+        match self {
+            Outer(segment) => segment.nodes(),
+            Center(segment) => segment.nodes(),
+        }
+    }
     /// Computes a segment surface(s)
     pub fn modes_to_surface(&mut self, weights: &Matrix) -> &mut Self {
         use GMTSegment::*;
@@ -162,8 +187,32 @@ impl GMTSegment {
     pub fn interpolation(&self, x: f64, y: f64, i_surface: usize) -> f64 {
         use GMTSegment::*;
         match self {
-            Outer(segment) => segment.interpolation(x,y,i_surface),
-            Center(segment) => segment.interpolation(x,y,i_surface),
+            Outer(segment) => segment.interpolation(x, y, i_surface),
+            Center(segment) => segment.interpolation(x, y, i_surface),
+        }
+    }
+    /// Returns actuator coordinates
+    pub fn actuators(&self) -> &[f64] {
+        use GMTSegment::*;
+        match self {
+            Outer(segment) => segment.actuators(),
+            Center(segment) => segment.actuators(),
+        }
+    }
+    /// Returns the number of M1 segment core
+    pub fn n_core(&self) -> usize {
+        use GMTSegment::*;
+        match self {
+            Outer(segment) => segment.n_core(),
+            Center(segment) => segment.n_core(),
+        }
+    }
+    /// Returns the location coordinates of M1 segment cores
+    pub fn cores(&self) -> Option<&[f64]> {
+        use GMTSegment::*;
+        match self {
+            Outer(segment) => segment.cores(),
+            Center(segment) => segment.cores(),
         }
     }
 }
@@ -382,6 +431,27 @@ impl Mirror {
             .iter()
             .filter_map(|segment| segment.as_ref())
             .map(|s| s.surface())
+            .collect()
+    }
+    pub fn actuators(&self) -> Vec<Vec<f64>> {
+        self.segments
+            .iter()
+            .filter_map(|segment| segment.as_ref())
+            .map(|s| s.actuators().to_vec())
+            .collect()
+    }
+    pub fn n_core(&self) -> Vec<usize> {
+        self.segments
+            .iter()
+            .filter_map(|segment| segment.as_ref())
+            .map(|s| s.n_core())
+            .collect()
+    }
+    pub fn cores(&self) -> Vec<Option<&[f64]>> {
+        self.segments
+            .iter()
+            .filter_map(|segment| segment.as_ref())
+            .map(|s| s.cores())
             .collect()
     }
 }

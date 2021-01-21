@@ -2,14 +2,15 @@ use datax;
 use fem;
 use fem::IOTraits;
 //use gmt_m1;
+use complot as plt;
+use complot::TriPlot;
 use gmt_kpp::KPP;
-use gmt_m1_thermal_influence_functions::{
-    BendingModes, Mirror, Segment as M1Segment, SegmentBuilder,
-};
+use gmt_m1_thermal_influence_functions::{BendingModes, Mirror, SegmentBuilder};
 use nalgebra as na;
 use plotters::prelude::*;
 use rayon::prelude::*;
 use serde_pickle as pkl;
+use spade::delaunay::FloatDelaunayTriangulation;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::sync::Arc;
@@ -36,22 +37,22 @@ const CS_FANS: [f64; 28] = [
 enum TemperatureDistribution {
     Constant(f64),
     Uniform(f64, f64),
-    DiscreteGauss(Vec<f64>, Vec<f64>, f64, f64, f64),
+    DiscreteGauss(Vec<Vec<f64>>, f64, f64, f64, f64),
 }
 impl TemperatureDistribution {
     pub fn cores(
         self,
-        n_core_outer: usize,
-        n_core_center: usize,
+        n_core: Vec<usize>,
+        cores: Vec<Option<&[f64]>>,
         n_sample: usize,
     ) -> Vec<na::Matrix<f64, na::Dynamic, na::Dynamic, na::VecStorage<f64, na::Dynamic, na::Dynamic>>>
     {
         use TemperatureDistribution::*;
-        let mut n_core = vec![n_core_outer; 6];
-        n_core.push(n_core_center);
         n_core
             .into_iter()
-            .map(|n| {
+            .zip(cores.iter().filter_map(|x| x.as_ref()))
+            .enumerate()
+            .map(|(k, (n, core))| {
                 2. * match &self {
                     // Factor to convert surface 2 wavefront
                     Constant(c) => na::DMatrix::from_element(n, n_sample, *c),
@@ -61,19 +62,32 @@ impl TemperatureDistribution {
                             * *range
                             + na::DMatrix::from_element(n, n_sample, *offset)
                     }
-                    DiscreteGauss(cores, locations, sigma, peak, offset) => {
-                        na::DMatrix::from_iterator(
-                            n,
-                            n_sample,
-                            (0..n).map(|i| {
-                                let (x_core, y_core) = (cores[i], cores[i + n]);
-                                locations.chunks(2).fold(0., |temp, xy| {
-                                    let r = (x_core - xy[0]).hypot(y_core - xy[1]);
-                                    let red = -0.5 * (r / sigma).powf(2.);
-                                    temp + peak * red.exp() + offset
-                                })
-                            }),
-                        )
+                    DiscreteGauss(locations, sigma, peak, range, offset) => {
+                        let v: Vec<_> = (0..n_sample)
+                            .map(|_| {
+                                na::DVector::from_iterator(
+                                    n,
+                                    (0..n).map(|i| {
+                                        let (x_core, y_core) = (core[i], core[i + n]);
+                                        let n_locations = locations[k].len() / 2;
+                                        let peak_offset = (na::DVector::new_random(n_locations)
+                                            * 2.
+                                            - na::DVector::from_element(n_locations, 1.))
+                                            * *range;
+                                        locations[k].chunks(2).zip(peak_offset.iter()).fold(
+                                            0.,
+                                            |temp, (xy, po)| {
+                                                let r = (x_core - xy[0]).hypot(y_core - xy[1]);
+                                                let a = (peak + po) / peak;
+                                                let red = -0.5 * (r / (sigma * a.abs().max(1.).sqrt())).powf(2.);
+                                                temp + a * peak * red.exp() + offset
+                                            },
+                                        )
+                                    }),
+                                )
+                            })
+                            .collect();
+                        na::DMatrix::from_columns(&v)
                     }
                 }
             })
@@ -146,7 +160,7 @@ fn build_segment(
     stiffness_size: Vec<usize>,
     bending: BendingModes,
     actuators_coords: Vec<f64>,
-) -> M1Segment {
+) -> SegmentBuilder {
     let n_node = nodes.len() / 2;
     let mx_stiffness = na::DMatrix::from_iterator(
         n_node,
@@ -179,19 +193,17 @@ fn build_segment(
         .nodes(n_node, nodes)
         .actuators(actuators_coords.len() / 2, actuators_coords)
         .modes(n_core, q)
-        .build()
 }
-
 fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
-    let mut plot =
-        BitMapBackend::new("wavefront.png", (n_grid as u32, n_grid as u32)).into_drawing_area();
+    let plot =
+        BitMapBackend::new("wavefront.png", (n_grid as u32 + 100, n_grid as u32 + 100)).into_drawing_area();
     plot.fill(&WHITE).unwrap();
     let l = length / 2.;
-    let mut chart = ChartBuilder::on(&mut plot)
-        .set_label_area_size(LabelAreaPosition::Left, 40)
-        .set_label_area_size(LabelAreaPosition::Bottom, 40)
-        .margin_top(40)
-        .margin_right(40)
+    let mut chart = ChartBuilder::on(&plot)
+        .set_label_area_size(LabelAreaPosition::Left, 60)
+        .set_label_area_size(LabelAreaPosition::Bottom, 60)
+        .margin_top(60)
+        .margin_right(60)
         .build_cartesian_2d(-l..l, -l..l)
         .unwrap();
     chart
@@ -214,22 +226,56 @@ fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
             let y = j as f64 * d - 0.5 * length;
             let ij = i * n_grid + j;
             plotting_area
-                .draw_pixel((x, y), &HSLColor(unit_surface[ij], 0.5, 0.4))
+                .draw_pixel((x, y), &HSLColor(0.5 * unit_surface[ij], 0.5, 0.4))
+                .unwrap();
+        }
+    }
+    let legend_plot = plot.clone();
+    //.shrink((n_grid as u32 - 60, 40), (60, n_grid as u32 - 80));
+    let mut legend = ChartBuilder::on(&legend_plot)
+        .set_label_area_size(LabelAreaPosition::Right, 60)
+        .margin_top(60)
+        .margin_bottom(60)
+        .build_cartesian_2d(0..n_grid, 1e9 * cells_min..1e9 * cells_max)
+        .unwrap();
+    legend
+        .configure_mesh()
+        .disable_x_mesh()
+        .disable_y_mesh()
+        .y_desc("Wavefront [nm]")
+        .draw()
+        .unwrap();
+    let legend_area = legend.plotting_area();
+    for i in 0..20 {
+        let x = n_grid - 20 + i;
+        for j in 0..n_grid {
+            let u = j as f64 / n_grid as f64;
+            let y = 1e9 * (u * (cells_max - cells_min) + cells_min);
+            legend_area
+                .draw_pixel((x, y), &HSLColor(0.5 * u, 0.5, 0.4))
                 .unwrap();
         }
     }
 }
 #[derive(StructOpt, Debug)]
-#[structopt(name = "gmt_m1_thermal_influence-functions")]
+#[structopt(about, author, name = "gmt_m1_thermal_influence-functions")]
 struct Opt {
     /// Number of Monte-Carlo sample
     #[structopt(short, long, default_value = "1")]
     monte_carlo: usize,
-    /// Temperature distribution: constant, uniform
+    /// Temperature distribution: constant, uniform, fan-uniform, actuator-uniform
     #[structopt(short, long)]
     temp_dist: String,
-    /// Temperature distribution parameters given in mK: constant<peak>, uniform<range,offset>
-    #[structopt(short = "a", long)]
+    #[structopt(
+        short = "a",
+        long,
+        long_help = r"Temperature distribution parameters:
+     - constant        : peak[mK],
+     - uniform         : range[mK] offset[mK],
+     - fan-uniform     : sigma[m] peak[mK] range[mK] offset[mK],
+     - actuator-uniform: sigma[m] peak[mK] range[mK] offset[mK]
+"
+    )]
     temp_dist_args: Vec<f64>,
 }
 
@@ -240,7 +286,7 @@ fn main() {
         println!("Loading outer segment data ...");
         let now = Instant::now();
         let mut inputs = fem::load_io("data/20200319_Rodrigo_k6rot_100000_c_inputs.pkl").unwrap();
-        let (actuators_coords, nodes, _m1_cores, n_core, stiffness, stiffness_size, bending) =
+        let (actuators_coords, nodes, m1_cores, n_core, stiffness, stiffness_size, bending) =
             load_thermal_data(
                 &mut inputs,
                 "M1_actuators_segment_1",
@@ -263,18 +309,20 @@ fn main() {
             stiffness_size,
             bending,
             actuators_coords,
-        );
+        )
+        .m1_thermal_model(n_core, m1_cores)
+        .build();
         println!(
             "Outer segment model build in {:.3}s",
             now.elapsed().as_secs_f64()
         );
-        (segment, n_core)
+        segment
     });
     let h2 = thread::spawn(|| {
         println!("Loading center segment data ...");
         let mut inputs = fem::load_io("data/20200319_Rodrigo_k6rot_100000_c_inputs.pkl").unwrap();
         let now = Instant::now();
-        let (actuators_coords, nodes, _m1_cores, n_core, stiffness, stiffness_size, bending) =
+        let (actuators_coords, nodes, m1_cores, n_core, stiffness, stiffness_size, bending) =
             load_thermal_data(
                 &mut inputs,
                 "M1_actuators_segment_7",
@@ -297,42 +345,106 @@ fn main() {
             stiffness_size,
             bending,
             actuators_coords,
-        );
+        )
+        .m1_thermal_model(n_core, m1_cores)
+        .build();
         println!(
             "Center segment model build in {:.3}s",
             now.elapsed().as_secs_f64()
         );
-        (segment, n_core)
+        segment
     });
-    let (outer, n_core_outer) = h1.join().unwrap();
-    let (center, n_core_center) = h2.join().unwrap();
+    let outer = h1.join().unwrap();
+    let center = h2.join().unwrap();
     let mut m1 = Mirror::with_segments(outer, center);
     println!("M1: {}", m1);
 
     let monte_carlo = opt.monte_carlo;
-    let core_temperature = match opt.temp_dist.as_str() {
-        "constant" => TemperatureDistribution::Constant(1e-3 * opt.temp_dist_args[0]).cores(
-            n_core_outer,
-            n_core_center,
-            monte_carlo,
-        ),
-        "uniform" => TemperatureDistribution::Uniform(
-            1e-3 * opt.temp_dist_args[0],
-            1e-3 * opt.temp_dist_args[1],
-        )
-        .cores(n_core_outer, n_core_center, monte_carlo),
-        _ => unimplemented!(),
-    };
-    /*let core_temperature = TemperatureDistribution::DiscreteGauss(
-                n_core,
-                m1_cores.clone(),
-                //fans.to_vec(),
-                actuators_coords.clone(),
-                10e-2,
-                30e-3,
-                0.,
+    let core_temperature = {
+        match opt.temp_dist.as_str() {
+            "constant" => TemperatureDistribution::Constant(1e-3 * opt.temp_dist_args[0]),
+            "uniform" => TemperatureDistribution::Uniform(
+                1e-3 * opt.temp_dist_args[0],
+                1e-3 * opt.temp_dist_args[1],
+            ),
+            "fan-uniform" => {
+                let mut locations = vec![OA_FANS.to_vec(); 6];
+                locations.push(CS_FANS.to_vec());
+                TemperatureDistribution::DiscreteGauss(
+                    locations,
+                    opt.temp_dist_args[0],
+                    1e-3 * opt.temp_dist_args[1],
+                    1e-3 * opt.temp_dist_args[2],
+                    1e-3 * opt.temp_dist_args[3],
+                )
+            }
+            "actuator-uniform" => TemperatureDistribution::DiscreteGauss(
+                m1.actuators(),
+                opt.temp_dist_args[0],
+                1e-3 * opt.temp_dist_args[1],
+                1e-3 * opt.temp_dist_args[2],
+                1e-3 * opt.temp_dist_args[3],
+            ),
+            _ => unimplemented!(),
+        }
+    }
+    .cores(m1.n_core(), m1.cores(), monte_carlo);
+
+    let filename = format!("temperature.distribution.png");
+    let fig = BitMapBackend::new(&filename, (4096, 2048)).into_drawing_area();
+    fig.fill(&WHITE).unwrap();
+    let (s1_fig, s7_fig) = fig.split_horizontally((50).percent_width());
+
+    let s1 = &m1.segments[0].as_ref().unwrap();
+    let s7 = &m1.segments[6].as_ref().unwrap();
+    let ct1 = &core_temperature[0];
+    let ct7 = &core_temperature[6];
+
+    for (seg, ct, seg_fig, fans) in &[(s1, ct1, s1_fig, OA_FANS), (s7, ct7, s7_fig, CS_FANS)] {
+        let cores = seg.cores().unwrap();
+        let n_core = seg.n_core();
+        let sigma = 5e-2;
+        let temperature_field: Vec<f64> = seg
+            .nodes()
+            .map(|xy| {
+                let (x, y) = (xy[0], xy[1]);
+                (0..n_core).fold(0., |temp, i| {
+                    let (x_core, y_core) = (cores[i], cores[i + n_core]);
+                    let r = (x - x_core).hypot(y - y_core);
+                    let red = -0.5 * (r / sigma).powf(2.);
+                    temp + ct[(i, 0)] * red.exp()
+                })
+            })
+            .collect();
+
+        let mut seg_ax = plt::chart([-4.5, 4.5, -4.5, 4.5], seg_fig);
+        let mut tri = FloatDelaunayTriangulation::with_walk_locate();
+        let (x, y): (Vec<f64>, Vec<f64>) = seg.nodes().map(|xy| (xy[0], xy[1])).unzip();
+        seg.nodes().for_each(|xy| {
+            tri.insert([xy[0], xy[1]]);
+        });
+
+        tri.map(&x, &y, &temperature_field, &mut seg_ax);
+        seg_ax
+            .draw_series(
+                (0..n_core).map(|i| Circle::new((cores[i], cores[i + n_core]), 20, &WHITE)),
             )
-    .cores()*/
+            .unwrap();
+        seg_ax
+            .draw_series(
+              fans
+                    .chunks(2)
+                    .map(|xy| TriangleMarker::new((xy[0], xy[1]), 30, &WHITE)),
+            )
+            .unwrap();
+        seg_ax
+            .draw_series(
+                seg.actuators()
+                    .chunks(2)
+                    .map(|xy| Circle::new((xy[0], xy[1]), 10, BLACK.filled())),
+            )
+            .unwrap();
+    }
 
     m1.modes_to_surface(&core_temperature);
 
@@ -353,11 +465,12 @@ fn main() {
     let now = Instant::now();
     let surface: Vec<_> = (0..monte_carlo)
         .into_par_iter()
-        .map(|mc| {
+        .enumerate()
+        .map(|(k, mc)| {
             let surface = m1.gridded_surface(length, n_grid, &m1_segment_mask, Some(mc));
             //println!("Interpolated in {:.3}s", now.elapsed().as_secs_f64());
             let mut pssn = KPP::new().pssn(length, n_grid, &pupil);
-            println!("PSSn: {}", pssn.estimate(&pupil, Some(&surface)),);
+            println!("#{} PSSn: {}", k + 1, pssn.estimate(&pupil, Some(&surface)),);
             if mc == 0 {
                 Some(surface)
             } else {
