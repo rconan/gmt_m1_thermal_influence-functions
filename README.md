@@ -16,7 +16,39 @@ At a terminal enter:
 
 `tar -xzvf gmt_m1_thermal_influence-functions.tgz && cd gmt_m1_thermal_influence-functions`
 
-then `gmt_m1_thermal_influence-functions --help` to get a description of the inputs to the model.
+then, to get a description of the inputs to the model: `gmt_m1_thermal_influence-functions --help` 
+
+```
+gmt_m1_thermal_influence-functions 0.1.0
+Rod Conan <rconan@gmto.org>
+GMT M1 Linear Thermal Model
+
+USAGE:
+    gmt_m1_thermal_influence-functions [OPTIONS] --temp-dist <temp-dist>
+
+FLAGS:
+    -h, --help       
+            Prints help information
+
+    -V, --version    
+            Prints version information
+
+
+OPTIONS:
+    -m, --monte-carlo <monte-carlo>             
+            Number of Monte-Carlo sample [default: 1]
+
+    -t, --temp-dist <temp-dist>                 
+            Temperature distribution: constant, uniform, fan-uniform, actuator-uniform
+
+    -a, --temp-dist-args <temp-dist-args>...    
+            Temperature distribution parameters:
+                 - constant        : peak[mK],
+                 - uniform         : range[mK] offset[mK],
+                 - fan-uniform     : sigma[m] peak[mK] range[mK] offset[mK],
+                 - actuator-uniform: sigma[m] peak[mK] range[mK] offset[mK]
+
+```
 
 For example, to get 5 PSSn sample for cores temperature uniformly distributed in the range [-30,+30]mK, use: 
 
