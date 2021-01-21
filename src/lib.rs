@@ -47,6 +47,9 @@ pub struct GMTSegmentModel {
     tri: Option<Triangulation>,
 }
 impl GMTSegmentModel {
+    pub fn n_node(&self) -> usize {
+        self.base.n_node
+    }
     pub fn nodes(&self) -> std::slice::Chunks<'_, f64> {
         self.base.nodes.chunks(2)
     }
@@ -131,6 +134,13 @@ impl fmt::Display for GMTSegment {
     }
 }
 impl GMTSegment {
+    pub fn n_node(&self) -> usize {
+        use GMTSegment::*;
+        match self {
+            Outer(segment) => segment.n_node(),
+            Center(segment) => segment.n_node(),
+        }
+    }
     pub fn nodes(&self) -> std::slice::Chunks<'_, f64> {
         use GMTSegment::*;
         match self {
@@ -238,11 +248,18 @@ pub struct Segment {
 }
 impl fmt::Display for Segment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            " - number of acuators: {}\n - number of surface nodes: {}",
-            self.n_actuator, self.n_node
-        )
+        match &self.m1_thermal {
+            Some(t) =>         write!(
+                f,
+                " - number of acuators: {}\n - number of surface nodes: {}\n - number of cores: {}",
+                self.n_actuator, self.n_node, t.n_core
+            ),
+            None =>         write!(
+                f,
+                " - number of acuators: {}\n - number of surface nodes: {}",
+                self.n_actuator, self.n_node
+            ),
+        }
     }
 }
 impl Segment {

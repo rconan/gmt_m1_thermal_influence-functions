@@ -79,7 +79,9 @@ impl TemperatureDistribution {
                                             |temp, (xy, po)| {
                                                 let r = (x_core - xy[0]).hypot(y_core - xy[1]);
                                                 let a = (peak + po) / peak;
-                                                let red = -0.5 * (r / (sigma * a.abs().max(1.).sqrt())).powf(2.);
+                                                let red = -0.5
+                                                    * (r / (sigma * a.abs().max(1.).sqrt()))
+                                                        .powf(2.);
                                                 temp + a * peak * red.exp() + offset
                                             },
                                         )
@@ -195,15 +197,15 @@ fn build_segment(
         .modes(n_core, q)
 }
 fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
-    let plot =
-        BitMapBackend::new("wavefront.png", (n_grid as u32 + 100, n_grid as u32 + 100)).into_drawing_area();
+    let plot = BitMapBackend::new("wavefront.png", (n_grid as u32 + 100, n_grid as u32 + 100))
+        .into_drawing_area();
     plot.fill(&WHITE).unwrap();
     let l = length / 2.;
     let mut chart = ChartBuilder::on(&plot)
-        .set_label_area_size(LabelAreaPosition::Left, 60)
-        .set_label_area_size(LabelAreaPosition::Bottom, 60)
-        .margin_top(60)
-        .margin_right(60)
+        .set_label_area_size(LabelAreaPosition::Left, 50)
+        .set_label_area_size(LabelAreaPosition::Bottom, 50)
+        .margin_top(50)
+        .margin_right(50)
         .build_cartesian_2d(-l..l, -l..l)
         .unwrap();
     chart
@@ -231,11 +233,11 @@ fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
         }
     }
     let legend_plot = plot.clone();
-    //.shrink((n_grid as u32 - 60, 40), (60, n_grid as u32 - 80));
+    //.shrink((n_grid as u32 - 50, 40), (50, n_grid as u32 - 80));
     let mut legend = ChartBuilder::on(&legend_plot)
-        .set_label_area_size(LabelAreaPosition::Right, 60)
-        .margin_top(60)
-        .margin_bottom(60)
+        .set_label_area_size(LabelAreaPosition::Right, 50)
+        .margin_top(50)
+        .margin_bottom(50)
         .build_cartesian_2d(0..n_grid, 1e9 * cells_min..1e9 * cells_max)
         .unwrap();
     legend
@@ -390,62 +392,87 @@ fn main() {
     }
     .cores(m1.n_core(), m1.cores(), monte_carlo);
 
-    let filename = format!("temperature.distribution.png");
-    let fig = BitMapBackend::new(&filename, (4096, 2048)).into_drawing_area();
-    fig.fill(&WHITE).unwrap();
-    let (s1_fig, s7_fig) = fig.split_horizontally((50).percent_width());
+    // Temperature field plot
+    {
+        let filename = format!("temperature.distribution.png");
+        let fig = BitMapBackend::new(&filename, (4096, 2048)).into_drawing_area();
+        fig.fill(&WHITE).unwrap();
+        let (s1_fig, s7_fig) = fig.split_horizontally((50).percent_width());
 
-    let s1 = &m1.segments[0].as_ref().unwrap();
-    let s7 = &m1.segments[6].as_ref().unwrap();
-    let ct1 = &core_temperature[0];
-    let ct7 = &core_temperature[6];
+        let s1 = &m1.segments[0].as_ref().unwrap();
+        let s7 = &m1.segments[6].as_ref().unwrap();
+        let ct1 = &core_temperature[0];
+        let ct7 = &core_temperature[6];
 
-    for (seg, ct, seg_fig, fans) in &[(s1, ct1, s1_fig, OA_FANS), (s7, ct7, s7_fig, CS_FANS)] {
-        let cores = seg.cores().unwrap();
-        let n_core = seg.n_core();
-        let sigma = 5e-2;
-        let temperature_field: Vec<f64> = seg
-            .nodes()
-            .map(|xy| {
-                let (x, y) = (xy[0], xy[1]);
-                (0..n_core).fold(0., |temp, i| {
-                    let (x_core, y_core) = (cores[i], cores[i + n_core]);
-                    let r = (x - x_core).hypot(y - y_core);
-                    let red = -0.5 * (r / sigma).powf(2.);
-                    temp + ct[(i, 0)] * red.exp()
+        for (seg, ct, seg_fig, fans) in &[(s1, ct1, s1_fig, OA_FANS), (s7, ct7, s7_fig, CS_FANS)] {
+            let cores = seg.cores().unwrap();
+            let n_core = seg.n_core();
+            let sigma = 5e-2;
+            let temperature_field: Vec<f64> = seg
+                .nodes()
+                .map(|xy| {
+                    let (x, y) = (xy[0], xy[1]);
+                    (0..n_core).fold(0., |temp, i| {
+                        let (x_core, y_core) = (cores[i], cores[i + n_core]);
+                        let r = (x - x_core).hypot(y - y_core);
+                        let red = -0.5 * (r / sigma).powf(2.);
+                        temp + ct[(i, 0)] * red.exp()
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        let mut seg_ax = plt::chart([-4.5, 4.5, -4.5, 4.5], seg_fig);
-        let mut tri = FloatDelaunayTriangulation::with_walk_locate();
-        let (x, y): (Vec<f64>, Vec<f64>) = seg.nodes().map(|xy| (xy[0], xy[1])).unzip();
-        seg.nodes().for_each(|xy| {
-            tri.insert([xy[0], xy[1]]);
-        });
+            let temp_max = temperature_field
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
+            let temp_min = temperature_field
+                .iter()
+                .cloned()
+                .fold(f64::INFINITY, f64::min);
+            let temp_mean = temperature_field.iter().sum::<f64>() / seg.n_node() as f64;
+            let mut temp_rms = temperature_field
+                .iter()
+                .map(|x| (x - temp_mean).powf(2.))
+                .sum::<f64>()
+                / seg.n_node() as f64;
+            temp_rms = temp_rms.sqrt();
+            println!(
+                "Stats of temperature field sample #1 for segment #{}:",
+                seg.id()
+            );
+            println!(" - max : {:9.3}mK", 1e3 * temp_max);
+            println!(" - min : {:9.3}mK", 1e3 * temp_min);
+            println!(" - mean: {:9.3}mK", 1e3 * temp_mean);
+            println!(" - rms : {:9.3}mK", 1e3 * temp_rms);
 
-        tri.map(&x, &y, &temperature_field, &mut seg_ax);
-        seg_ax
-            .draw_series(
-                (0..n_core).map(|i| Circle::new((cores[i], cores[i + n_core]), 20, &WHITE)),
-            )
-            .unwrap();
-        seg_ax
-            .draw_series(
-              fans
-                    .chunks(2)
-                    .map(|xy| TriangleMarker::new((xy[0], xy[1]), 30, &WHITE)),
-            )
-            .unwrap();
-        seg_ax
-            .draw_series(
-                seg.actuators()
-                    .chunks(2)
-                    .map(|xy| Circle::new((xy[0], xy[1]), 10, BLACK.filled())),
-            )
-            .unwrap();
+            let mut seg_ax = plt::chart([-4.5, 4.5, -4.5, 4.5], seg_fig);
+            let mut tri = FloatDelaunayTriangulation::with_walk_locate();
+            let (x, y): (Vec<f64>, Vec<f64>) = seg.nodes().map(|xy| (xy[0], xy[1])).unzip();
+            seg.nodes().for_each(|xy| {
+                tri.insert([xy[0], xy[1]]);
+            });
+
+            tri.map(&x, &y, &temperature_field, &mut seg_ax);
+            seg_ax
+                .draw_series(
+                    (0..n_core).map(|i| Circle::new((cores[i], cores[i + n_core]), 20, &WHITE)),
+                )
+                .unwrap();
+            seg_ax
+                .draw_series(
+                    fans.chunks(2)
+                        .map(|xy| TriangleMarker::new((xy[0], xy[1]), 30, &WHITE)),
+                )
+                .unwrap();
+            seg_ax
+                .draw_series(
+                    seg.actuators()
+                        .chunks(2)
+                        .map(|xy| Circle::new((xy[0], xy[1]), 10, BLACK.filled())),
+                )
+                .unwrap();
+        }
     }
-
     m1.modes_to_surface(&core_temperature);
 
     println!("Gridding the mirror ...");
@@ -463,6 +490,11 @@ fn main() {
     );
 
     let now = Instant::now();
+    println!(" PSSn & Wavefront Error");
+    println!(
+        "{:>8}{:>10}{:>13}{:>13}{:>14}{:>13}",
+        "sample #", "PSSn", "WFE max[nm]", "WFE min[nm]", "WFE mean[nm]", "WFE rms[nm]"
+    );
     let surface: Vec<_> = (0..monte_carlo)
         .into_par_iter()
         .enumerate()
@@ -470,7 +502,31 @@ fn main() {
             let surface = m1.gridded_surface(length, n_grid, &m1_segment_mask, Some(mc));
             //println!("Interpolated in {:.3}s", now.elapsed().as_secs_f64());
             let mut pssn = KPP::new().pssn(length, n_grid, &pupil);
-            println!("#{} PSSn: {}", k + 1, pssn.estimate(&pupil, Some(&surface)),);
+            let n = pupil.iter().sum::<f64>();
+            let pupil_wft: Vec<f64> = surface
+                .iter()
+                .zip(m1_segment_mask.iter())
+                .filter_map(|(s, m)| if *m > 0 { Some(*s) } else { None })
+                .collect();
+            let wfe_max = pupil_wft.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let wfe_min = pupil_wft.iter().cloned().fold(f64::INFINITY, f64::min);
+            let wfe_mean = pupil_wft.iter().cloned().sum::<f64>() / n;
+            let wfe_rms = (pupil_wft
+                .iter()
+                .cloned()
+                .map(|x| (x - wfe_mean).powf(2.))
+                .sum::<f64>()
+                / n)
+                .sqrt();
+            println!(
+                "{:>8}{:>10.5}{:>13.0}{:>13.0}{:>14.0}{:>13.0}",
+                k + 1,
+                pssn.estimate(&pupil, Some(&surface)),
+                wfe_max * 1e9,
+                wfe_min * 1e9,
+                wfe_mean * 1e9,
+                wfe_rms * 1e9
+            );
             if mc == 0 {
                 Some(surface)
             } else {
