@@ -61,7 +61,7 @@ For example, to get 5 PSSn sample for cores temperature uniformly distributed in
 `gmt_m1_thermal_influence-functions -m 5 --temp-dist uniform -a 30 0`
 
 The wavefront error map corresponding to the 1st sample is written in `wavefront.png`.
-The temperature field for segment #1 and segment #7 for the 1st sample is written in `temperature.distribution.png` (triangles show fan location, actuator locations are represented with black dots).
+The temperature field for segment #1 and segment #7 for the 1st sample is written in `temperature.distribution.png` (triangles show fan locations, actuator locations are represented with black dots).
 
 ## Core temperature distribution
 The model has four temperature distributions for the peak temperature of the segment cores:
@@ -71,10 +71,18 @@ The model has four temperature distributions for the peak temperature of the seg
  - actuator-uniform
 
 ### Constant temperature distribution
-The same peak temperature is applied to all the cores
+The same peak temperature is applied to all the cores.
+
+Example:
+
+[gmt_m1_thermal_influence-functions --temp-dist constant --temp-dist-args 30](https://github.com/rconan/gmt_m1_thermal_influence-functions/tree/main/tests/constant_30)
 
 ### Uniform
-The core peak temperature is uniformly distributed in [-range,+range] + offset
+The core peak temperature is uniformly distributed in [-range,+range] + offset.
+
+Example:
+
+[gmt_m1_thermal_influence-functions -m 5 --temp-dist uniform --temp-dist-args 30 0](https://github.com/rconan/gmt_m1_thermal_influence-functions/tree/main/tests/uniform_30_0)
 
 ### Fan-Uniform
 A Gaussian-shaped distribution of core peak temperature is applied at each fans.
@@ -83,9 +91,17 @@ The peak of the Gaussian fan is uniformly distributed in [-range,+range] + peak.
 The sigma is adjusted such as the area below the Gaussian grows linearly with the fan peak temperature.
 An offset temperature can also be applied to all the cores.
 
+Example:
+
+[gmt_m1_thermal_influence-functions -m 5 --temp-dist fan-uniform --temp-dist-args 25e-2 60 0 0](https://github.com/rconan/gmt_m1_thermal_influence-functions/tree/main/tests/fan-uniform_25e-2_60_0_0)
+
 ### Actuator-Uniform
 A Gaussian-shaped distribution of core peak temperature is applied at each actuators.
 Each Gaussian is characterized by a sigma and a peak value.
 The peak of the Gaussian actuator is uniformly distributed in [-range,+range] + peak.
 The sigma is adjusted such as the area below the Gaussian grows linearly with the actuator peak temperature.
 An offset temperature can also be applied to all the cores.
+
+Example:
+
+[gmt_m1_thermal_influence-functions -m 5 --temp-dist actuator-uniform --temp-dist-args 10e-2 10 0 0](https://github.com/rconan/gmt_m1_thermal_influence-functions/tree/main/tests/actuator-uniform_10e-2_10_0_0)
