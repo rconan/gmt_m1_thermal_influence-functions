@@ -1,6 +1,11 @@
 # GMT M1 Thermal Linear Model
 
-A linear thermal model of the GMT primary mirror based on a set of temperature Gaussian influence functions (with sigma=5cm) centered on each core of each M1 glass segment.
+A linear thermal model of the GMT primary mirror based on a set of temperature influence function.
+An influence function is a segment surface deformation in meters corresponding to a Gaussian temperature distribution (peak=1K, sigma=5cm) centered on one core of the segment. 
+In a segment, there are as many influence functions as the number of cores.
+
+The model compute the surface of each segment as the weighted sum of the influence function, the weights being the peak temperature of each core.
+The segment surfaces (multiply by a factor 2) are assembled to form the mirror wavefront from which the PSSn is derived. 
 
 ## Installation
 
@@ -55,3 +60,10 @@ For example, to get 5 PSSn sample for cores temperature uniformly distributed in
 `gmt_m1_thermal_influence-functions -m 5 --temp-dist uniform -a 30 0`
 
 A example of the wavefront error map is written in `wavefront.png`.
+
+## Core temperature distribution
+The model has four temperature distributions for the peak temperature of the segment cores:
+ - constant
+ - uniform
+ - fan-uniform
+ - actuator-uniform
