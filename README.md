@@ -5,7 +5,8 @@ An influence function is a segment surface deformation in meters corresponding t
 In a segment, there are as many influence functions as the number of cores.
 
 The model compute the surface of each segment as the weighted sum of the influence function, the weights being the peak temperature of each core.
-The segment surfaces (multiply by a factor 2) are assembled to form the mirror wavefront from which the PSSn is derived. 
+The first 27 eigen modes of each segment is then removed from the thermal segment surface deformation.
+The segment surfaces (multiply by a factor 2) are assembled to form the mirror wavefront from which the PSSn is derived from. 
 
 ## Installation
 
