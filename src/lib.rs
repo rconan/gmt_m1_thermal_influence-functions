@@ -249,12 +249,12 @@ pub struct Segment {
 impl fmt::Display for Segment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.m1_thermal {
-            Some(t) =>         write!(
+            Some(t) => write!(
                 f,
                 " - number of acuators: {}\n - number of surface nodes: {}\n - number of cores: {}",
                 self.n_actuator, self.n_node, t.n_core
             ),
-            None =>         write!(
+            None => write!(
                 f,
                 " - number of acuators: {}\n - number of surface nodes: {}",
                 self.n_actuator, self.n_node
@@ -390,27 +390,26 @@ impl Mirror {
     ) -> Vec<usize> {
         let xradius = exclude_radius.unwrap_or(0f64);
         let d = length / (n_grid - 1) as f64;
-        let mut mask: Vec<usize> = vec![0; n_grid * n_grid];
-        //let mut tri_ptr: Vec<&Triangulation> = vec![];
-        for i in 0..n_grid {
-            let x = i as f64 * d - 0.5 * length;
-            for j in 0..n_grid {
-                let y = j as f64 * d - 0.5 * length;
-                let r = x.hypot(y);
-                let ij = i * n_grid + j;
-                if r >= xradius {
-                    for segment in self.segments.iter() {
-                        if let Some(s) = segment {
-                            if s.inside(x, y) {
-                                mask[ij] = s.id();
-                                break;
+        self.segments.iter().filter_map(|x| x.as_ref()).fold(
+            vec![0; n_grid * n_grid],
+            |mut m, segment| {
+                for k in 0..n_grid * n_grid {
+                    if m[k] == 0 {
+                        let i = k / n_grid;
+                        let j = k % n_grid;
+                        let x = i as f64 * d - 0.5 * length;
+                        let y = j as f64 * d - 0.5 * length;
+                        let r = x.hypot(y);
+                        if r >= xradius {
+                            if segment.inside(x, y) {
+                                m[k] = segment.id()
                             }
                         }
                     }
                 }
-            }
-        }
-        mask
+                m
+            },
+        )
     }
     pub fn gridded_surface(
         &self,
