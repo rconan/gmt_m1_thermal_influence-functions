@@ -483,7 +483,7 @@ fn main() {
     let length = 25.5;
     let n_grid = 769;
     let now = Instant::now();
-    let m1_segment_mask = m1.triangulate().gridding_mask(length, n_grid, Some(1.375));
+    let m1_segment_mask = m1.triangulate().gridding_mask(length, n_grid, Some(1.75));
     println!("Gridded in {:.3}s", now.elapsed().as_secs_f64());
 
     let pupil: Arc<Vec<f64>> = Arc::new(
