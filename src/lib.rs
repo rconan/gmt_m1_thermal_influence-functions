@@ -26,6 +26,7 @@ impl HasPosition for Surface {
     }
 }
 
+/// M1 bending modes
 #[derive(Deserialize)]
 pub struct BendingModes {
     pub nodes: Vec<f64>, // [x0,y0,x1,y1,...]
@@ -47,15 +48,19 @@ pub struct GMTSegmentModel {
     tri: Option<Triangulation>,
 }
 impl GMTSegmentModel {
+    /// Returns a segment number of nodes
     pub fn n_node(&self) -> usize {
         self.base.n_node
     }
+    /// Returns a segment nodes chunks iterator
     pub fn nodes(&self) -> std::slice::Chunks<'_, f64> {
         self.base.nodes.chunks(2)
     }
+    /// Returns a segment surface(s)
     pub fn surface(&self) -> Option<&[f64]> {
         self.surface.as_ref().and_then(|x| Some(x.as_slice()))
-    }
+    } 
+    /// Triangulates the nodes and the surface into the local segment coordinate system
     pub fn local_triangulation(&mut self) {
         let mut tri = FloatDelaunayTriangulation::with_walk_locate();
         self.base.nodes.chunks(2).enumerate().for_each(|(i, xy)| {
@@ -83,10 +88,12 @@ impl GMTSegmentModel {
         });
         self.tri = Some(tri);
     }
+    /// Computes a segment surface(s)
     pub fn modes_to_surface(&mut self, weights: &Matrix) {
         self.n_surface = weights.ncols();
         self.surface = self.base.surface(weights);
     }
+    /// Returns `true` if the point [x,y] is inside the segment otherwise returns `false`
     pub fn inside(&self, x: f64, y: f64) -> bool {
         match &self.tri {
             Some(tri) => match tri.locate(&[x, y]) {
@@ -96,6 +103,7 @@ impl GMTSegmentModel {
             None => false,
         }
     }
+    /// Segment surface linear interpolation
     pub fn interpolation(&self, x: f64, y: f64, i_surface: usize) -> f64 {
         match &self.tri {
             Some(tri) => tri
@@ -104,15 +112,18 @@ impl GMTSegmentModel {
             None => 0f64,
         }
     }
+    /// Returns actuator coordinates
     pub fn actuators(&self) -> &[f64] {
         &self.base.actuators
     }
+    /// Returns the number of M1 segment core
     pub fn n_core(&self) -> usize {
         match &self.base.m1_thermal {
             Some(t) => t.n_core,
             None => 0,
         }
     }
+    /// Returns the location coordinates of M1 segment cores
     pub fn cores(&self) -> Option<&[f64]> {
         match &self.base.m1_thermal {
             Some(t) => Some(&t.cores),
@@ -134,6 +145,7 @@ impl fmt::Display for GMTSegment {
     }
 }
 impl GMTSegment {
+    /// Returns a segment number of nodes
     pub fn n_node(&self) -> usize {
         use GMTSegment::*;
         match self {
@@ -141,6 +153,7 @@ impl GMTSegment {
             Center(segment) => segment.n_node(),
         }
     }
+    /// Returns a segment nodes chunks iterator
     pub fn nodes(&self) -> std::slice::Chunks<'_, f64> {
         use GMTSegment::*;
         match self {
@@ -193,7 +206,7 @@ impl GMTSegment {
             Center(segment) => segment.inside(x, y),
         }
     }
-    /// Segment linear interpolation
+    /// Segment surface linear interpolation
     pub fn interpolation(&self, x: f64, y: f64, i_surface: usize) -> f64 {
         use GMTSegment::*;
         match self {
@@ -271,6 +284,7 @@ impl Segment {
         }
     }
 }
+/// M1 thermal model
 #[derive(Default)]
 pub struct M1ThermalModel {
     /// Number of cores
@@ -345,6 +359,7 @@ pub struct Mirror {
     pub segments: [Option<GMTSegment>; 7],
 }
 impl Mirror {
+    /// Creates a new mirror based on an outer and a center `Segment`
     pub fn with_segments(outer: Segment, center: Segment) -> Self {
         let mut this = Mirror {
             outer: Arc::new(outer),
@@ -365,7 +380,7 @@ impl Mirror {
         }));
         this
     }
-    /// Computes the segment surfaces according to the mode weights
+    /// Computes the segment surfaces according to the mode weights, one matrix per segment and one weight vector per column, the number of columns must be the same for all segments. There are as many surfaces as the number of columns
     pub fn modes_to_surface(&mut self, weights: &[Matrix]) {
         self.segments
             .iter_mut()
@@ -375,6 +390,7 @@ impl Mirror {
                 segment.modes_to_surface(weight);
             });
     }
+    /// Triangulates the segment surfaces
     pub fn triangulate(&mut self) -> &mut Self {
         self.segments
             .par_iter_mut()
@@ -382,6 +398,8 @@ impl Mirror {
             .for_each(|segment| segment.local_triangulation());
         self
     }
+    /// Return a segment mask define of a regular square `n_grid`X`n_grid` mesh of `length` in meter. The mask stores the segment ID numbers.
+    /// A center hole of a given radius [m] may be specified.
     pub fn gridding_mask(
         &self,
         length: f64,
@@ -411,6 +429,7 @@ impl Mirror {
             },
         )
     }
+    /// Returns the mirror surface masked and interpolated on a regular square `n_grid`X`n_grid` mesh of `length` in meter. If multiple surfaces per segment have been computed, the segment surface index may be provided.
     pub fn gridded_surface(
         &self,
         length: f64,
@@ -442,6 +461,7 @@ impl Mirror {
             });
         gridded_surface
     }
+    /// Returns the mirror segment surfaces
     pub fn surface(&self) -> Vec<Option<&[f64]>> {
         self.segments
             .iter()
@@ -449,6 +469,7 @@ impl Mirror {
             .map(|s| s.surface())
             .collect()
     }
+    /// Returns the mirror segment actuators [x,y] coordinates
     pub fn actuators(&self) -> Vec<Vec<f64>> {
         self.segments
             .iter()
@@ -456,6 +477,7 @@ impl Mirror {
             .map(|s| s.actuators().to_vec())
             .collect()
     }
+    /// Returns the number of cores for each M1 segment
     pub fn n_core(&self) -> Vec<usize> {
         self.segments
             .iter()
@@ -463,6 +485,7 @@ impl Mirror {
             .map(|s| s.n_core())
             .collect()
     }
+    /// Returns the [x,y] coordinates of M1 segment cores
     pub fn cores(&self) -> Vec<Option<&[f64]>> {
         self.segments
             .iter()
