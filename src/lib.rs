@@ -26,6 +26,62 @@ impl HasPosition for Surface {
     }
 }
 
+fn polywind(x: f64, y: f64, vx: &[f64], vy: &[f64]) -> i32 {
+    let n = vx.len();
+    let mut p0 = vx[n - 1];
+    let mut p1 = vy[n - 1];
+    let mut wind = 0i32;
+    for i in 0..n {
+        let d0 = vx[i];
+        let d1 = vy[i];
+        let q = (p0 - x) * (d1 - y) - (p1 - y) * (d0 - x);
+        if p1 <= y {
+            if d1 > y && q > 0.0 {
+                wind += 1;
+            }
+        } else {
+            if d1 <= y && q < 0.0 {
+                wind -= 1;
+            }
+        }
+        p0 = d0;
+        p1 = d1;
+    }
+    wind
+}
+
+fn truss_shadow(x: f64, y: f64) -> bool {
+    let vx = vec![
+        -3.011774, -2.446105, -3.011774, -2.799304, -2.33903, -1.566412, -1.640648, -1.9445,
+        -1.640648, -1.566412, -2.347462, -1.597649, -1.725044, -2.392888, -2.799304,
+    ];
+    let vy = vec![
+        -2.902158, 0., 2.902158, 3.107604, 0.07244, 0.518512, 0.175429, 0., -0.175429, -0.518512,
+        -0.067572, -3.865336, -3.810188, -0.427592, -3.107604,
+    ];
+    if (1..4).fold(0, |a, k| {
+        let q = geotrans::Quaternion::unit(-120f64.to_radians() * k as f64, geotrans::Vector::k());
+        let (vx, vy): (Vec<f64>, Vec<f64>) = vx
+            .iter()
+            .cloned()
+            .zip(vy.iter().cloned())
+            .map(|(x, y)| {
+                let v = geotrans::Vector::from([x, y, 0.0]);
+                let p = geotrans::Quaternion::from(v);
+                let pp = &q * p * q.complex_conjugate();
+                let u = pp.vector_as_slice();
+                (u[0], u[1])
+            })
+            .unzip();
+        a + polywind(x, y, &vx, &vy)
+    }) == 0
+    {
+        false
+    } else {
+        true
+    }
+}
+
 /// M1 bending modes
 #[derive(Deserialize)]
 pub struct BendingModes {
@@ -59,7 +115,7 @@ impl GMTSegmentModel {
     /// Returns a segment surface(s)
     pub fn surface(&self) -> Option<&[f64]> {
         self.surface.as_ref().and_then(|x| Some(x.as_slice()))
-    } 
+    }
     /// Triangulates the nodes and the surface into the local segment coordinate system
     pub fn local_triangulation(&mut self) {
         let mut tri = FloatDelaunayTriangulation::with_walk_locate();
@@ -418,7 +474,7 @@ impl Mirror {
                         let x = i as f64 * d - 0.5 * length;
                         let y = j as f64 * d - 0.5 * length;
                         let r = x.hypot(y);
-                        if r >= xradius {
+                        if r >= xradius && !truss_shadow(x, y) {
                             if segment.inside(x, y) {
                                 m[k] = segment.id()
                             }
@@ -501,5 +557,24 @@ impl fmt::Display for Mirror {
             "Mirror:\n* Outer segment:\n{}\n* Center Segment\n{}",
             self.outer, self.center
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::polywind;
+
+    #[test]
+    fn wind() {
+        let vertices = vec![1., 1., -1., 1., -1., -1., 1., -1.];
+        let (vx, vy): (Vec<f64>, Vec<f64>) = vertices.chunks(2).map(|xy| (xy[0], xy[1])).unzip();
+        let w = polywind(0., 0., &vx, &vy);
+        println!("wind: {}", w);
+        let w = polywind(1., 0., &vx, &vy);
+        println!("wind: {}", w);
+        let w = polywind(1., 1., &vx, &vy);
+        println!("wind: {}", w);
+        let w = polywind(2., 0., &vx, &vy);
+        println!("wind: {}", w);
     }
 }
