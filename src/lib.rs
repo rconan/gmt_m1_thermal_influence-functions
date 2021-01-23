@@ -559,6 +559,42 @@ impl fmt::Display for Mirror {
         )
     }
 }
+use std::ops::{Index, IndexMut};
+impl Index<usize> for Mirror {
+    type Output = Option<GMTSegment>;
+    fn index(&self, id: usize) -> &Self::Output {
+        let q: Vec<usize> = self
+            .segments
+            .iter()
+            .enumerate()
+            .filter_map(|(k, segment)| match segment {
+                Some(s) if s.id() == id => Some(k),
+                None => None,
+                &Some(_) => None,
+            })
+            .collect();
+        if q.len() > 0 {
+            &self.segments[q[0]]
+        } else {
+            &None
+        }
+    }
+}
+impl IndexMut<usize> for Mirror {
+    fn index_mut(&mut self, id: usize) -> &mut Self::Output {
+        let q: Vec<usize> = self
+            .segments
+            .iter()
+            .enumerate()
+            .filter_map(|(k, segment)| match segment {
+                Some(s) if s.id() == id => Some(k),
+                None => None,
+                &Some(_) => None,
+            })
+            .collect();
+        &mut self.segments[q[0]]
+    }
+}
 
 #[cfg(test)]
 mod tests {
