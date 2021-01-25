@@ -33,27 +33,19 @@ USAGE:
     gmt_m1_thermal_influence-functions [OPTIONS] --temp-dist <temp-dist>
 
 FLAGS:
-    -h, --help       
-            Prints help information
-
-    -V, --version    
-            Prints version information
-
+    -h, --help       Prints help information
+    -V, --version    Prints version information
 
 OPTIONS:
-    -m, --monte-carlo <monte-carlo>             
-            Number of Monte-Carlo sample [default: 1]
-
-    -t, --temp-dist <temp-dist>                 
-            Temperature distribution: constant, uniform, fan-uniform, actuator-uniform
-
-    -a, --temp-dist-args <temp-dist-args>...    
-            Temperature distribution parameters:
-                 - constant        : peak[mK],
-                 - uniform         : range[mK] offset[mK],
-                 - fan-uniform     : sigma[m] peak[mK] range[mK] offset[mK],
-                 - actuator-uniform: sigma[m] peak[mK] range[mK] offset[mK]
-
+    -b, --band <band>                           Photometric band (V: 0.5micron or H: 1.65micron) [default: V]
+    -m, --monte-carlo <monte-carlo>             Number of Monte-Carlo sample [default: 1]
+    -t, --temp-dist <temp-dist>                 Temperature distribution: constant, uniform, fan-uniform, actuator-
+                                                uniform
+    -a, --temp-dist-args <temp-dist-args>...    Temperature distribution parameters:
+                                                     - constant        : peak[mK],
+                                                     - uniform         : range[mK] offset[mK],
+                                                     - fan-uniform     : sigma[m] peak[mK] range[mK] offset[mK],
+                                                     - actuator-uniform: sigma[m] peak[mK] range[mK] offset[mK]
 ```
 
 For example, to get 5 PSSn sample for cores temperature uniformly distributed in the range [-30,+30]mK, use: 

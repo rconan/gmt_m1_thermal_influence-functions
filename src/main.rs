@@ -266,6 +266,9 @@ fn draw_surface(length: f64, n_grid: usize, surface: &[f64]) {
 #[derive(StructOpt, Debug)]
 #[structopt(about, author, name = "gmt_m1_thermal_influence-functions")]
 struct Opt {
+    /// Photometric band (V: 0.5micron or H: 1.65micron)
+    #[structopt(short, long, default_value = "V")]
+    band: String,
     /// Number of Monte-Carlo sample
     #[structopt(short, long, default_value = "1")]
     monte_carlo: usize,
@@ -287,6 +290,11 @@ struct Opt {
 
 fn main() {
     let opt = Opt::from_args();
+    let wavelength = match opt.band.as_str() {
+        "V" => 0.5e-6,
+        "H" => 1.65e-6,
+        _ => unimplemented!("Only V and H band are allowed"),
+    };
 
     let h1 = thread::spawn(|| {
         println!("Loading outer segment data ...");
@@ -391,7 +399,7 @@ fn main() {
                 1e-3 * opt.temp_dist_args[2],
                 1e-3 * opt.temp_dist_args[3],
             ),
-            _ => unimplemented!(),
+            _ => unimplemented!("Temperature distributions must be one of: constant, uniform, fan-uniform or actuator-uniform"),
         }
     }
     .cores(m1.n_core(), m1.cores(), monte_carlo);
@@ -505,7 +513,9 @@ fn main() {
         .map(|(k, mc)| {
             let surface = m1.gridded_surface(length, n_grid, &m1_segment_mask, Some(mc));
             //println!("Interpolated in {:.3}s", now.elapsed().as_secs_f64());
-            let mut pssn = KPP::new().pssn(length, n_grid, &pupil);
+            let mut pssn = KPP::new()
+                .wavelength(wavelength)
+                .pssn(length, n_grid, &pupil);
             let n = pupil.iter().sum::<f64>();
             let pupil_wft: Vec<f64> = surface
                 .iter()
